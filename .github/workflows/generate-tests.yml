@@ -10,7 +10,7 @@ jobs:
   generate-tests:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write   # needed to push commits
 
     steps:
       - name: Checkout code
@@ -29,12 +29,14 @@ jobs:
       - name: Generate tests
         env:
           GEMINI_API: ${{ secrets.GEMINI_API }}
-        run: node generate-tests.js || exit 1 
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: node generate-tests.js
 
       - name: Commit and push generated tests
         run: |
-          git config --global user.name 'York PR Tester Bot'
-          git config --global user.email 'bot@york-pr-tester.com'
+          git config user.name 'York PR Tester Bot'
+          git config user.email 'bot@york-pr-tester.com'
           git add tests/ || echo "No tests added"
-          git commit -m "Auto-generate Jest tests for changed files" || echo "No changes to commit"
+          git diff --cached --quiet || git commit -m "Auto-generate Jest tests for changed files"
           git push origin HEAD
