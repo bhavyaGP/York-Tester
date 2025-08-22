@@ -1,0 +1,16 @@
+{
+  "name": "york-tester",
+  "version": "1.0.0",
+  "description": "An automated Jest test case generator for GitHub PRs and pushes",
+  "main": "generate-tests.js",
+  "scripts": {
+    "start": "node generate-tests.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.1.0",
+    "dotenv": "^16.0.0"
+  },
+  "keywords": ["github", "jest", "testing", "automation", "pr"],
+  "author": "Your Name",
+  "license": "MIT"
+}
