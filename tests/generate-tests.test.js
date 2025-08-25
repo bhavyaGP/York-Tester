@@ -264,3 +264,106 @@ IMPORTANT:
   });
 });
 ```
+
+```javascript
+describe("jestPromptTemplate", () => {
+  it("should return a properly formatted prompt", () => {
+    const fileContent = "const example = 1;";
+    const result = jestPromptTemplate(fileContent);
+    expect(result).toContain("=== CODE START ===");
+    expect(result).toContain(fileContent);
+    expect(result).toContain("=== CODE END ===");
+    expect(result).toContain("TEST REQUIREMENTS:");
+  });
+
+  it("should handle empty file content", () => {
+    const result = jestPromptTemplate("");
+    expect(result).toContain("=== CODE START ===");
+    expect(result).toContain("=== CODE END ===");
+    expect(result).toContain("TEST REQUIREMENTS:");
+  });
+});
+
+describe("getChangedFiles", () => {
+  it("should return an empty array if git command fails", () => {
+    const originalExecSync = execSync;
+    execSync = () => { throw new Error("git error"); };
+    const result = getChangedFiles();
+    expect(result).toEqual([]);
+    execSync = originalExecSync;
+  });
+
+  it("should return an array of changed files", () => {
+    const originalExecSync = execSync;
+    execSync = () => "file1.js\nfile2.js";
+    const result = getChangedFiles();
+    expect(result).toEqual(["file1.js", "file2.js"]);
+    execSync = originalExecSync;
+
+  });
+  it("should handle no changed files", () => {
+    const originalExecSync = execSync;
+    execSync = () => "";
+    const result = getChangedFiles();
+    expect(result).toEqual([]);
+    execSync = originalExecSync;
+  });
+
+  it("should handle windows paths", () => {
+    const originalExecSync = execSync;
+    execSync = () => "file1.js\nfile2.js";
+    const result = getChangedFiles();
+    expect(result).toEqual(["file1.js","file2.js"]);
+    execSync = originalExecSync;
+  });
+});
+
+
+describe("generateTests", () => {
+  it("should handle no changed files", async () => {
+    const originalGetChangedFiles = getChangedFiles;
+    getChangedFiles = () => [];
+    const originalModelGenerateContent = jest.fn();
+    const genAI = {getGenerativeModel: jest.fn().mockReturnValue({generateContent: originalModelGenerateContent})};
+    const originalfs = fs;
+    fs = {existsSync: jest.fn().mockReturnValue(true), readFileSync: jest.fn().mockReturnValue("test"),writeFileSync: jest.fn(),mkdirSync: jest.fn()};
+    global.process = {...process,env: {...process.env,GEMINI_API: "test"}};
+
+    await generateTests();
+    expect(console.log).toHaveBeenCalledWith("ℹ️  No JS files changed.");
+    fs = originalfs;
+    getChangedFiles = originalGetChangedFiles;
+  });
+
+  it("should handle file system errors gracefully", async () => {
+    const originalGetChangedFiles = getChangedFiles;
+    getChangedFiles = () => ["test.js"];
+    const originalModelGenerateContent = jest.fn().mockRejectedValue(new Error("API error"));
+    const genAI = {getGenerativeModel: jest.fn().mockReturnValue({generateContent: originalModelGenerateContent})};
+    const originalfs = fs;
+    fs = {existsSync: jest.fn().mockReturnValue(false), readFileSync: jest.fn(),writeFileSync: jest.fn(),mkdirSync: jest.fn()};
+    global.process = {...process,env: {...process.env,GEMINI_API: "test"}};
+
+
+    await generateTests();
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("Failed for test.js:"));
+    fs = originalfs;
+    getChangedFiles = originalGetChangedFiles;
+  });
+
+  it("should generate and write test files", async () => {
+    const originalGetChangedFiles = getChangedFiles;
+    getChangedFiles = () => ["test.js"];
+    const originalModelGenerateContent = jest.fn().mockResolvedValue({response:{text: jest.fn().mockReturnValue("test Jest code")}});
+    const genAI = {getGenerativeModel: jest.fn().mockReturnValue({generateContent: originalModelGenerateContent})};
+    const originalfs = fs;
+    fs = {existsSync: jest.fn().mockImplementation((path) => path === "tests"), readFileSync: jest.fn().mockReturnValue("test"),writeFileSync: jest.fn(),mkdirSync: jest.fn()};
+    global.process = {...process,env: {...process.env,GEMINI_API: "test"}};
+
+    await generateTests();
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringContaining("tests/test.test.js"), "test Jest code");
+    fs = originalfs;
+    getChangedFiles = originalGetChangedFiles;
+  });
+});
+```
