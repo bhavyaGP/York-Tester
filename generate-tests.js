@@ -5,7 +5,6 @@ require("dotenv").config();
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 
-
 function jestPromptTemplate(fileContent) {
   return `
 You are an expert JavaScript testing assistant.
