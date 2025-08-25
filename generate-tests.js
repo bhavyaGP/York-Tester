@@ -3,10 +3,6 @@ const fs = require("fs");
 const path = require("path");
 require("dotenv").config();
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-if (!process.env.GEMINI_API) {
-  console.error("❌ GEMINI_API key is missing!");
-  process.exit(1);
-}
 
 
 function jestPromptTemplate(fileContent) {
