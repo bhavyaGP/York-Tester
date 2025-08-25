@@ -1,0 +1,12 @@
+name: "York Tester"
+description: "AI-powered Jest test case generator"
+author: "bhavyaGP"
+
+inputs:
+  gemini_api:
+    description: "Gemini API key"
+    required: true
+
+runs:
+  using: "node20"
+  main: "generate-tests.js"
