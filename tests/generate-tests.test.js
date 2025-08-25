@@ -141,3 +141,126 @@ IMPORTANT:
   });
 });
 ```
+
+```javascript
+const { execSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+
+
+describe("getChangedFiles", () => {
+  let originalEnv;
+  beforeEach(() => {
+    originalEnv = { ...process.env };
+  });
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it("should return an empty array if no env vars are set", () => {
+    delete process.env.BASE_SHA;
+    delete process.env.HEAD_SHA;
+    delete process.env.GITHUB_BASE_REF;
+    expect(getChangedFiles()).toEqual([]);
+  });
+
+  it("should handle baseSha and headSha", () => {
+    process.env.BASE_SHA = "base";
+    process.env.HEAD_SHA = "head";
+    const spyExecSync = jest.spyOn(child_process, 'execSync').mockReturnValue(Buffer.from('file1.js\nfile2.js'));
+    expect(getChangedFiles()).toEqual(["file1.js", "file2.js"]);
+    spyExecSync.mockRestore();
+  });
+
+  it("should handle GITHUB_BASE_REF", () => {
+    process.env.GITHUB_BASE_REF = "main";
+    const spyExecSync = jest.spyOn(child_process, 'execSync').mockReturnValue(Buffer.from('file3.js'));
+    expect(getChangedFiles()).toEqual(["file3.js"]);
+    spyExecSync.mockRestore();
+  });
+
+  it("should handle default case", () => {
+    const spyExecSync = jest.spyOn(child_process, 'execSync').mockReturnValue(Buffer.from('file4.js'));
+    expect(getChangedFiles()).toEqual(["file4.js"]);
+    spyExecSync.mockRestore();
+  });
+
+
+  it("should handle errors gracefully", () => {
+    const spyExecSync = jest.spyOn(child_process, 'execSync').mockImplementation(() => { throw new Error("test error") });
+    expect(getChangedFiles()).toEqual([]);
+    spyExecSync.mockRestore();
+  });
+});
+
+
+describe("generateTests", () => {
+  it("should handle no changed files", async () => {
+    const spyGetChangedFiles = jest.spyOn(module.exports, 'getChangedFiles').mockReturnValue([]);
+    console.log = jest.fn();
+    await generateTests();
+    expect(console.log).toHaveBeenCalledWith("ℹ️  No JS files changed.");
+    spyGetChangedFiles.mockRestore();
+  });
+
+  it("should handle file system errors", async () => {
+    const spyGetChangedFiles = jest.spyOn(module.exports, 'getChangedFiles').mockReturnValue(["test.js"]);
+    const spyReadFileSync = jest.spyOn(fs, 'readFileSync').mockImplementation(() => { throw new Error("test error") });
+    console.error = jest.fn();
+    await generateTests();
+    expect(console.error).toHaveBeenCalled();
+    spyGetChangedFiles.mockRestore();
+    spyReadFileSync.mockRestore();
+
+  });
+
+  it("should handle empty file content", async () => {
+    const spyGetChangedFiles = jest.spyOn(module.exports, 'getChangedFiles').mockReturnValue(["test.js"]);
+    jest.spyOn(fs, 'readFileSync').mockReturnValue("");
+    console.log = jest.fn();
+    await generateTests();
+    expect(console.log).toHaveBeenCalledWith("ℹ️  No JS files changed.");
+    spyGetChangedFiles.mockRestore();
+  })
+
+  it("should handle model generation errors", async () => {
+    const spyGetChangedFiles = jest.spyOn(module.exports, 'getChangedFiles').mockReturnValue(["test.js"]);
+    jest.spyOn(fs, 'readFileSync').mockReturnValue("test content");
+    const spyGenerateContent = jest.spyOn(GoogleGenerativeAI.prototype, 'generateContent').mockImplementation(() => { throw new Error("test error") });
+    console.error = jest.fn();
+
+    await generateTests();
+    expect(console.error).toHaveBeenCalled();
+    spyGetChangedFiles.mockRestore();
+    spyGenerateContent.mockRestore();
+  });
+});
+
+describe("jestPromptTemplate", () => {
+  it("should return a properly formatted prompt", () => {
+    const content = "console.log('hello')";
+    const expectedPrompt = `
+You are an expert JavaScript testing assistant.
+Your job is to generate **complete and executable Jest unit tests** for the given code.
+=== CODE START ===
+${content}
+=== CODE END ===
+TEST REQUIREMENTS:
+- Use the Jest testing framework
+- Cover ALL functions, methods, and exported modules in the file
+- Organize tests using 'describe' and 'it/test' blocks
+- Add meaningful test descriptions
+- Include positive (expected behavior) and negative (error/invalid input) cases
+- Test edge cases and boundary conditions
+- Validate error handling
+- Ensure generated code is executable Jest test code
+IMPORTANT:
+- Do NOT include explanations, comments, or extra text
+- Do NOT include any markdown characters (like \`\`\`javascript)
+- Output ONLY pure Jest test code
+`;
+    expect(jestPromptTemplate(content)).toBe(expectedPrompt);
+  });
+});
+```
