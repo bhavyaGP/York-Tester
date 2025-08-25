@@ -367,3 +367,172 @@ describe("generateTests", () => {
   });
 });
 ```
+
+```javascript
+const { execSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+
+jest.mock("child_process");
+jest.mock("fs");
+jest.mock("@google/generative-ai");
+
+describe("generateTests", () => {
+  let generateTests;
+  let getChangedFilesMock;
+  let genAIMock;
+  let modelMock;
+  let execSyncMock;
+  let fsMock;
+
+  beforeEach(() => {
+    execSyncMock = jest.mocked(execSync);
+    fsMock = jest.mocked(fs);
+    getChangedFilesMock = jest.spyOn(global, "getChangedFiles").mockImplementation(() => []);
+    genAIMock = { getGenerativeModel: jest.fn() };
+    modelMock = { generateContent: jest.fn() };
+    genAIMock.getGenerativeModel.mockReturnValue(modelMock);
+    jest.mock("@google/generative-ai", () => ({ GoogleGenerativeAI: jest.fn(() => genAIMock) }));
+    generateTests = require("../index").generateTests;
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+
+  it("should handle no changed files", async () => {
+    getChangedFilesMock.mockReturnValue([]);
+    await generateTests();
+    expect(console.log).toHaveBeenCalledWith("ℹ️  No JS files changed.");
+  });
+
+  it("should handle changed files successfully", async () => {
+    const mockFileContent = "const myFunc = () => {};";
+    const mockFilePath = "/path/to/myFile.js";
+    const mockTestContent = "test('myFunc', () => { expect(myFunc()).toBeDefined(); });";
+    getChangedFilesMock.mockReturnValue([mockFilePath]);
+    fsMock.existsSync.mockReturnValue(true);
+    fsMock.readFileSync.mockReturnValue(mockFileContent);
+    modelMock.generateContent.mockResolvedValue({response: { text: jest.fn(() => mockTestContent)}});
+    fsMock.mkdirSync.mockReturnValue(undefined);
+    fsMock.writeFileSync.mockReturnValue(undefined);
+    fsMock.appendFileSync.mockReturnValue(undefined);
+    await generateTests();
+    expect(console.log).toHaveBeenCalledWith(`⚡ Generating tests for: ${mockFilePath}`);
+    expect(fsMock.writeFileSync).toHaveBeenCalledWith(expect.stringContaining(path.join("tests", "myFile.test.js")), mockTestContent);
+  });
+
+  it("should handle errors gracefully", async () => {
+    const mockFilePath = "/path/to/myFile.js";
+    getChangedFilesMock.mockReturnValue([mockFilePath]);
+    fsMock.existsSync.mockReturnValue(true);
+    fsMock.readFileSync.mockReturnValue("const myFunc = () => {};");
+    modelMock.generateContent.mockRejectedValue(new Error("API Error"));
+    await generateTests();
+    expect(console.error).toHaveBeenCalledWith(`⚠️ Failed for ${mockFilePath}:`, "API Error");
+  });
+
+  it("should handle non-existent file", async () => {
+    const mockFilePath = "/path/to/myFile.js";
+    getChangedFilesMock.mockReturnValue([mockFilePath]);
+    fsMock.existsSync.mockReturnValue(false);
+    await generateTests();
+    expect(console.log).not.toHaveBeenCalledWith(`⚡ Generating tests for: ${mockFilePath}`);
+  });
+
+
+  it("should handle empty file content", async () => {
+    const mockFilePath = "/path/to/myFile.js";
+    getChangedFilesMock.mockReturnValue([mockFilePath]);
+    fsMock.existsSync.mockReturnValue(true);
+    fsMock.readFileSync.mockReturnValue("");
+    await generateTests();
+    expect(console.log).not.toHaveBeenCalledWith(`⚡ Generating tests for: ${mockFilePath}`);
+  });
+
+  it("should handle git errors", async () => {
+    execSyncMock.mockImplementation(() => { throw new Error("Git Error"); });
+    await generateTests();
+    expect(console.error).toHaveBeenCalledWith("⚠️ Failed to compute git diff:", "Git Error");
+  });
+
+    it("should append to existing test file", async () => {
+    const mockFileContent = "const myFunc = () => {};";
+    const mockFilePath = "/path/to/myFile.js";
+    const mockTestContent = "test('myFunc', () => { expect(myFunc()).toBeDefined(); });";
+    const existingTestContent = "test('anotherFunc', () => { });";
+    getChangedFilesMock.mockReturnValue([mockFilePath]);
+    fsMock.existsSync.mockReturnValue(true);
+    fsMock.readFileSync.mockReturnValue(mockFileContent);
+    modelMock.generateContent.mockResolvedValue({response: { text: jest.fn(() => mockTestContent)}});
+    fsMock.mkdirSync.mockReturnValue(undefined);
+    fsMock.existsSync.mockImplementation((filePath) => filePath.endsWith("myFile.test.js"));
+    fsMock.writeFileSync.mockReturnValue(undefined);
+    fsMock.appendFileSync.mockReturnValue(undefined);
+    fsMock.readFileSync.mockImplementationOnce((filePath) => existingTestContent)
+    await generateTests();
+    expect(fsMock.appendFileSync).toHaveBeenCalledWith(expect.stringContaining(path.join("tests", "myFile.test.js")), `\n\n${mockTestContent}`);
+  });
+
+});
+
+
+describe("getChangedFiles", () => {
+  const originalEnv = process.env;
+
+  afterEach(() => {
+    process.env = originalEnv;
+    jest.restoreAllMocks();
+  });
+
+  it("should return empty array if no git diffs", () => {
+    process.env = { ...originalEnv, BASE_SHA: undefined, HEAD_SHA: undefined, GITHUB_BASE_REF: undefined};
+    execSync.mockImplementation(() => "");
+    const result = getChangedFiles();
+    expect(result).toEqual([]);
+  });
+
+  it("should handle git diff with base and head", () => {
+    process.env = { ...originalEnv, BASE_SHA: "base", HEAD_SHA: "head" };
+    execSync.mockImplementation(() => "file1.js\nfile2.js");
+    const result = getChangedFiles();
+    expect(result).toEqual(["file1.js", "file2.js"]);
+  });
+
+  it("should handle git diff with GITHUB_BASE_REF", () => {
+    process.env = { ...originalEnv, GITHUB_BASE_REF: "main" };
+    execSync.mockImplementation(() => "file1.js\nfile2.js");
+    const result = getChangedFiles();
+    expect(result).toEqual(["file1.js", "file2.js"]);
+  });
+
+  it("should handle git diff with HEAD~1 HEAD", () => {
+    process.env = { ...originalEnv, BASE_SHA: undefined, HEAD_SHA: undefined, GITHUB_BASE_REF: undefined};
+    execSync.mockImplementation(() => "file1.js\nfile2.js");
+    const result = getChangedFiles();
+    expect(result).toEqual(["file1.js", "file2.js"]);
+  });
+
+
+  it("should handle errors during execSync", () => {
+    process.env = { ...originalEnv, BASE_SHA: undefined, HEAD_SHA: undefined, GITHUB_BASE_REF: undefined};
+    execSync.mockImplementation(() => { throw new Error("Git Error")});
+    const consoleErrorSpy = jest.spyOn(console, 'error');
+    const result = getChangedFiles();
+    expect(result).toEqual([]);
+    expect(consoleErrorSpy).toHaveBeenCalledWith("⚠️ Failed to compute git diff:", "Git Error");
+  });
+
+});
+
+describe("jestPromptTemplate", () => {
+  it("should generate a valid prompt", () => {
+    const fileContent = "const myFunc = () => {};";
+    const prompt = jestPromptTemplate(fileContent);
+    expect(prompt).toContain(fileContent);
+  });
+});
+
+```
